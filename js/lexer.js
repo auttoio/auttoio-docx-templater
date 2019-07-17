@@ -196,6 +196,7 @@ function splitDelimiters(inside) {
 }
 
 function getAllIndexes(fullText, delimiters) {
+	var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
 	var indexes = [];
 	var start = delimiters.start,
 		end = delimiters.end;
@@ -207,10 +208,10 @@ function getAllIndexes(fullText, delimiters) {
 		if (indexOne) {
 			startOffset = indexOne.index;
 			endOffset = indexOne.index + indexOne[0].length - 1;
-			fullText = fullText.substring(0, startOffset) + '-' + fullText.substring(startOffset + 1);
+			fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
 
-			indexes.push({ offset: startOffset, position: 'start', length: start.length });
-			indexes.push({ offset: endOffset, position: 'end', length: end.length });
+			indexes.push({ offset: startOffset, position: "start", length: start.length });
+			indexes.push({ offset: endOffset, position: "end", length: end.length });
 		}
 		var compareResult = compareOffsets(startOffset, endOffset);
 		if (compareResult === EQUAL) {
