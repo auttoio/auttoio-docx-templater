@@ -204,7 +204,7 @@ function getAllIndexes(fullText, delimiters) {
 	while (true) {
 		var startOffset = -1;
 		var endOffset = -1;
-		const indexOne = fullText.match(/(\[!?[a-zA-Z-_]+[\w]*([.|][\w.|/,\s]+)*\])/);
+		const indexOne = fullText.match(/(\[!?[a-zA-Z-_]+[\w]*([.|].+)*\])/);
 		if (indexOne) {
 			startOffset = indexOne.index;
 			endOffset = indexOne.index + indexOne[0].length - 1;
