@@ -184,6 +184,9 @@ function splitDelimiters(inside) {
 }
 
 function getAllIndexes(fullText, delimiters) {
+
+	// FOR TEST
+
 	const indexes = [];
 	let { start, end } = delimiters;
 	let offset = -1;
