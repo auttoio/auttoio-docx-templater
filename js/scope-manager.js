@@ -119,7 +119,7 @@ function () {
   _createClass(ScopeManager, [{
     key: "loopOver",
     value: function loopOver(tag, functor, inverted, meta) {
-      return this.loopOverValue(this.getValue(tag, meta), functor, inverted);
+      return this.loopOverValue(this.getValue(tag, meta), functor, inverted, tag);
     }
   }, {
     key: "functorIfInverted",
@@ -132,25 +132,29 @@ function () {
     }
   }, {
     key: "isValueFalsy",
-    value: function isValueFalsy(value, type) {
-      return value == null || !value || type === "[object Array]" && value.length === 0;
+    value: function isValueFalsy(value, type, tag, scope) {
+			var parser = this.parser(tag, { scopePath: this.scopePath });
+
+			return parser.isFalsy(value, type, tag, scope);
+      // return value == null || !value || type === "[object Array]" && value.length === 0;
     }
   }, {
     key: "loopOverValue",
-    value: function loopOverValue(value, functor, inverted) {
+    value: function loopOverValue(value, functor, inverted, tag) {
       if (this.resolved) {
         inverted = false;
       }
 
       var type = Object.prototype.toString.call(value);
+			var currentValue = this.scopeList[this.num];
 
-      if (this.isValueFalsy(value, type)) {
-        return this.functorIfInverted(inverted, functor, last(this.scopeList), 0);
+      if (this.isValueFalsy(value, type, tag, currentValue)) {
+        return this.functorIfInverted(inverted, functor, currentValue, 0);
       }
 
       if (type === "[object Array]") {
         for (var i = 0; i < value.length; i++) {
-          this.functorIfInverted(!inverted, functor, value[i], i);
+          this.functorIfInverted(!inverted, functor, currentValue, i);
         }
 
         return true;
