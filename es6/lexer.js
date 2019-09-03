@@ -185,65 +185,82 @@ function splitDelimiters(inside) {
 
 function getAllIndexes(fullText, delimiters) {
 
-	// FOR TEST
+	var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
 
-	const indexes = [];
-	let { start, end } = delimiters;
-	let offset = -1;
-	let insideTag = false;
+	var indexes = [];
+	var start = delimiters.start,
+		end = delimiters.end;
+
+	var offset = -1;
+	var insideTag = false;
+
 	while (true) {
-		const startOffset = fullText.indexOf(start, offset + 1);
-		const endOffset = fullText.indexOf(end, offset + 1);
-		let position = null;
-		let len;
-		let compareResult = compareOffsets(startOffset, endOffset);
-		if (compareResult === NONE) {
-			return indexes;
-		}
-		if (compareResult === EQUAL) {
-			if (!insideTag) {
-				compareResult = START;
-			} else {
-				compareResult = END;
+
+		var startOffset = fullText.indexOf(start, offset + 1);
+		var endOffset = fullText.indexOf(end, offset + 1);
+
+		if(start === '{' || end === '}'){
+
+			var position = null;
+			var len = void 0;
+			var compareResult = compareOffsets(startOffset, endOffset);
+
+			if (compareResult === NONE) {
+				return indexes;
+			}
+
+			if (compareResult === EQUAL) {
+				if (!insideTag) {
+					compareResult = START;
+				} else {
+					compareResult = END;
+				}
+			}
+
+			if (compareResult === END) {
+				insideTag = false;
+				offset = endOffset;
+				position = "end";
+				len = end.length;
+			}
+
+			if (compareResult === START) {
+				insideTag = true;
+				offset = startOffset;
+				position = "start";
+				len = start.length;
+			}
+
+			indexes.push({
+				offset: offset,
+				position: position,
+				length: len
+			});
+		} else {
+			startOffset = -1;
+			endOffset = -1;
+
+			const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
+
+			if(variableIndex) {
+
+				startOffset = variableIndex.index;
+				endOffset = variableIndex.index + variableIndex[0].length - 1;
+
+				fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+
+				indexes.push({ offset: startOffset, position: "start", length: start.length });
+				indexes.push({ offset: endOffset, position: "end", length: end.length });
+
+			}
+
+			var compareResult = compareOffsets(startOffset, endOffset);
+
+			if (compareResult === NONE) {
+				return indexes;
 			}
 		}
-		if (compareResult === END) {
-			insideTag = false;
-			offset = endOffset;
-			position = "end";
-			len = end.length;
-		}
-		if (compareResult === START) {
-			insideTag = true;
-			offset = startOffset;
-			position = "start";
-			len = start.length;
-		}
-		if (position === "start" && fullText[offset + start.length] === "=") {
-			indexes.push({
-				offset: startOffset,
-				position: "start",
-				length: start.length,
-				changedelimiter: true,
-			});
-			const nextEqual = fullText.indexOf("=", offset + start.length + 1);
-			const endOffset = fullText.indexOf(end, nextEqual + 1);
 
-			indexes.push({
-				offset: endOffset,
-				position: "end",
-				length: end.length,
-				changedelimiter: true,
-			});
-			const insideTag = fullText.substr(
-				offset + start.length + 1,
-				nextEqual - offset - start.length - 1
-			);
-			[start, end] = splitDelimiters(insideTag);
-			offset = endOffset;
-			continue;
-		}
-		indexes.push({ offset, position, length: len });
 	}
 }
 
