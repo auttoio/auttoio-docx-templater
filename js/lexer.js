@@ -233,81 +233,84 @@ function splitDelimiters(inside) {
 }
 
 function getAllIndexes(fullText, delimiters) {
-  var indexes = [];
-  var start = delimiters.start,
-      end = delimiters.end;
-  var offset = -1;
-  var insideTag = false;
 
-  while (true) {
-    var startOffset = fullText.indexOf(start, offset + 1);
-    var endOffset = fullText.indexOf(end, offset + 1);
-    var position = null;
-    var len = void 0;
-    var compareResult = compareOffsets(startOffset, endOffset);
+	var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
 
-    if (compareResult === NONE) {
-      return indexes;
-    }
+	var indexes = [];
+	var start = delimiters.start,
+		end = delimiters.end;
 
-    if (compareResult === EQUAL) {
-      if (!insideTag) {
-        compareResult = START;
-      } else {
-        compareResult = END;
-      }
-    }
+	var offset = -1;
+	var insideTag = false;
 
-    if (compareResult === END) {
-      insideTag = false;
-      offset = endOffset;
-      position = "end";
-      len = end.length;
-    }
+	while (true) {
 
-    if (compareResult === START) {
-      insideTag = true;
-      offset = startOffset;
-      position = "start";
-      len = start.length;
-    }
+		var startOffset = fullText.indexOf(start, offset + 1);
+		var endOffset = fullText.indexOf(end, offset + 1);
 
-    if (position === "start" && fullText[offset + start.length] === "=") {
-      indexes.push({
-        offset: startOffset,
-        position: "start",
-        length: start.length,
-        changedelimiter: true
-      });
-      var nextEqual = fullText.indexOf("=", offset + start.length + 1);
+		if(start === '{' || end === '}'){
 
-      var _endOffset = fullText.indexOf(end, nextEqual + 1);
+			var position = null;
+			var len = void 0;
+			var compareResult = compareOffsets(startOffset, endOffset);
 
-      indexes.push({
-        offset: _endOffset,
-        position: "end",
-        length: end.length,
-        changedelimiter: true
-      });
+			if (compareResult === NONE) {
+				return indexes;
+			}
 
-      var _insideTag = fullText.substr(offset + start.length + 1, nextEqual - offset - start.length - 1);
+			if (compareResult === EQUAL) {
+				if (!insideTag) {
+					compareResult = START;
+				} else {
+					compareResult = END;
+				}
+			}
 
-      var _splitDelimiters = splitDelimiters(_insideTag);
+			if (compareResult === END) {
+				insideTag = false;
+				offset = endOffset;
+				position = "end";
+				len = end.length;
+			}
 
-      var _splitDelimiters2 = _slicedToArray(_splitDelimiters, 2);
+			if (compareResult === START) {
+				insideTag = true;
+				offset = startOffset;
+				position = "start";
+				len = start.length;
+			}
 
-      start = _splitDelimiters2[0];
-      end = _splitDelimiters2[1];
-      offset = _endOffset;
-      continue;
-    }
+			indexes.push({
+				offset: offset,
+				position: position,
+				length: len
+			});
+		} else {
+			startOffset = -1;
+			endOffset = -1;
 
-    indexes.push({
-      offset: offset,
-      position: position,
-      length: len
-    });
-  }
+			const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
+
+			if(variableIndex) {
+
+				startOffset = variableIndex.index;
+				endOffset = variableIndex.index + variableIndex[0].length - 1;
+
+				fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+
+				indexes.push({ offset: startOffset, position: "start", length: start.length });
+				indexes.push({ offset: endOffset, position: "end", length: end.length });
+
+			}
+
+			var compareResult = compareOffsets(startOffset, endOffset);
+
+			if (compareResult === NONE) {
+				return indexes;
+			}
+		}
+
+	}
 }
 
 function parseDelimiters(innerContentParts, delimiters) {
