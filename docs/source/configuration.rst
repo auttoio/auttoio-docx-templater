@@ -60,6 +60,75 @@ See `angular parser`_ for comprehensive documentation
 
 .. _`angular parser`: angular_parse.html
 
+The parser function is given two arguments, 
+
+For the template 
+
+.. code-block:: text
+
+    Hello {#users}{.}{/}
+
+With the data : 
+
+.. code-block:: javascript
+
+    {users: ['Mary', 'John']}
+
+.. code-block:: javascript
+
+    function parser(scope, context) [
+        console.log(scope); 
+        console.log(context);
+    }
+
+
+For the tag `.` in the first iteration, the arguments will be : 
+
+.. code-block:: javascript
+
+    scope = { "name": "Jane" }
+    context = {
+      "num": 1, // This corresponds to the level of the nesting, the {#users} tag is level 0, the {.} is level 1
+      "scopeList": [
+        {
+          "users": [
+            {
+              "name": "Jane"
+            },
+            {
+              "name": "Mary"
+            }
+          ]
+        },
+        {
+          "name": "Jane"
+        }
+      ],
+      "scopePath": [
+        "users"
+      ],
+      "scopePathItem": [
+        0
+      ]
+      // Together, scopePath and scopePathItem describe where we are in the data, in this case, we are in the tag users[0] (the first user)
+    }
+
+For example, it is possible to use the `{$index}` tag inside a loop by using following parser : 
+
+.. code-block:: javascript
+
+    function parser(tag) {
+        return {
+            get(scope, context) {
+                if (tag === "$index") {
+                    const indexes = context.scopePathItem;
+                    return indexes[indexes.length - 1];
+                }
+                return scope[tag];
+            },
+        };
+    }
+
 Custom delimiters
 -----------------
 
@@ -144,7 +213,7 @@ By default the nullGetter is the following function
 
 .. code-block:: javascript
 
-    nullGetter(part) {
+    nullGetter(part, scopeManager) {
         if (!part.module) {
             return "undefined";
         }
@@ -156,3 +225,18 @@ By default the nullGetter is the following function
 
 This means that the default value for simple tags is to show "undefined".
 The default for rawTags ({@rawTag}) is to drop the paragraph completely (you could enter any xml here).
+
+
+The scopeManager variable contains some meta information about the tag, for example, if the template is : {#users}{name}{/users} and the tag name is undefined, scopeManager.scopePath === ["users", "name"]
+
+linebreaks
+----------
+
+You can enable linebreaks, eg if your data contains newlines, those will be shown as linebreaks in the document
+
+.. code-block:: javascript
+
+    doc.setOptions({linebreaks:true});
+    doc.setData({text: "My text,\nmultiline"});
+    doc.render();
+

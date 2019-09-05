@@ -1,13 +1,13 @@
-"use strict";
-
 const expressions = require("angular-expressions");
 
-const { loadFile, loadDocument } = require("./utils");
+const { loadFile, loadDocument, rejectSoon } = require("./utils");
 const Errors = require("../errors.js");
 const {
 	createXmlTemplaterDocx,
+	createXmlTemplaterDocxNoRender,
 	wrapMultiError,
 	expectToThrow,
+	expectToThrowAsync,
 } = require("./utils");
 
 function angularParser(tag) {
@@ -20,6 +20,37 @@ function angularParser(tag) {
 }
 
 describe("Compilation errors", function() {
+	it("should fail when parsing invalid xml (1)", function() {
+		const content = "<w:t";
+		const expectedError = {
+			name: "TemplateError",
+			message: "An XML file has invalid xml",
+			properties: {
+				content,
+				offset: 0,
+				id: "file_has_invalid_xml",
+			},
+		};
+		const create = createXmlTemplaterDocx.bind(null, content);
+		expectToThrow(create, Errors.XTTemplateError, expectedError);
+	});
+
+	it("should fail when parsing invalid xml (2)", function() {
+		const content =
+			"<w:t>Foobar </w:t><w:t>Foobar </w:t><w:t>Foobar </w:t> <w:t John Jane Mary Doe</w:t>";
+		const expectedError = {
+			name: "TemplateError",
+			message: "An XML file has invalid xml",
+			properties: {
+				content,
+				offset: 55,
+				id: "file_has_invalid_xml",
+			},
+		};
+		const create = createXmlTemplaterDocx.bind(null, content);
+		expectToThrow(create, Errors.XTTemplateError, expectedError);
+	});
+
 	it("should fail when tag unclosed at end of document", function() {
 		const content = "<w:t>{unclosedtag my text</w:t>";
 		const expectedError = {
@@ -107,6 +138,7 @@ describe("Compilation errors", function() {
 			properties: {
 				id: "unopened_loop",
 				xtag: "loop",
+				offset: 0,
 			},
 		};
 		const create = createXmlTemplaterDocx.bind(null, content);
@@ -125,6 +157,7 @@ describe("Compilation errors", function() {
 			properties: {
 				id: "unclosed_loop",
 				xtag: "loop",
+				offset: 0,
 			},
 		};
 		const create = createXmlTemplaterDocx.bind(null, content);
@@ -157,6 +190,7 @@ describe("Compilation errors", function() {
 						module: "rawxml",
 						type: "placeholder",
 						value: "myrawtag",
+						raw: "@myrawtag",
 					},
 					{
 						position: "end",
@@ -168,7 +202,7 @@ describe("Compilation errors", function() {
 				],
 				xtag: "myrawtag",
 				rootError: {
-					message: 'No tag "w:p" was found at the right',
+					message: 'No tag "w:p" was found at the left',
 				},
 			},
 		};
@@ -206,6 +240,7 @@ describe("Compilation errors", function() {
 					{
 						type: "placeholder",
 						value: "myrawtag",
+						raw: "@myrawtag",
 						module: "rawxml",
 					},
 					{
@@ -274,8 +309,8 @@ describe("Compilation errors", function() {
 				id: "scopeparser_compilation_failed",
 				tag: "name++",
 				rootError: {
-					message:
-						"Syntax Error: Token 'undefined' not a primary expression at column NaN of the expression [name++] starting at [name++].",
+					message: `[$parse:ueoe] Unexpected end of expression: name++
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/ueoe?p0=name%2B%2B`,
 				},
 			},
 		};
@@ -292,7 +327,7 @@ describe("Compilation errors", function() {
 
 describe("Runtime errors", function() {
 	it("should fail when customparser fails to execute", function() {
-		const content = "<w:t>{name|upper}</w:t>";
+		const content = "<w:t> {name|upper}</w:t>";
 		function errorParser() {
 			return {
 				get() {
@@ -301,21 +336,77 @@ describe("Runtime errors", function() {
 			};
 		}
 		const expectedError = {
-			name: "ScopeParserError",
-			message: "Scope parser execution failed",
+			name: "TemplateError",
+			message: "Multi error",
 			properties: {
-				id: "scopeparser_execution_failed",
-				tag: "name|upper",
-				scope: {},
-				rootError: {
-					message: "foo bar",
-				},
+				errors: [
+					{
+						name: "ScopeParserError",
+						message: "Scope parser execution failed",
+						properties: {
+							id: "scopeparser_execution_failed",
+							scope: {},
+							tag: "name|upper",
+							offset: 1,
+							rootError: { message: "foo bar" },
+						},
+					},
+				],
+				id: "multi_error",
 			},
 		};
 		const create = createXmlTemplaterDocx.bind(null, content, {
 			parser: errorParser,
 		});
-		expectToThrow(create, Errors.XTScopeParserError, expectedError);
+		expectToThrow(create, Errors.XTTemplateError, expectedError);
+	});
+
+	it("should fail when customparser fails to execute on multiple tags", function() {
+		const content = "<w:t>{name|upper} {othername|upper}</w:t>";
+		let count = 0;
+		function errorParser() {
+			return {
+				get() {
+					count++;
+					throw new Error(`foo ${count}`);
+				},
+			};
+		}
+		const expectedError = {
+			name: "TemplateError",
+			message: "Multi error",
+			properties: {
+				errors: [
+					{
+						name: "ScopeParserError",
+						message: "Scope parser execution failed",
+						properties: {
+							id: "scopeparser_execution_failed",
+							scope: {},
+							tag: "name|upper",
+							rootError: { message: "foo 1" },
+							offset: 0,
+						},
+					},
+					{
+						name: "ScopeParserError",
+						message: "Scope parser execution failed",
+						properties: {
+							id: "scopeparser_execution_failed",
+							scope: {},
+							tag: "othername|upper",
+							rootError: { message: "foo 2" },
+							offset: 13,
+						},
+					},
+				],
+				id: "multi_error",
+			},
+		};
+		const create = createXmlTemplaterDocx.bind(null, content, {
+			parser: errorParser,
+		});
+		expectToThrow(create, Errors.XTTemplateError, expectedError);
 	});
 });
 
@@ -326,6 +417,7 @@ describe("Internal errors", function() {
 			message: 'The filetype "odt" is not handled by docxtemplater',
 			properties: {
 				id: "filetype_not_handled",
+				fileType: "odt",
 			},
 		};
 		loadFile("test.odt", (e, name, buffer) => {
@@ -535,6 +627,8 @@ describe("Multi errors", function() {
 						properties: {
 							id: "unclosed_loop",
 							xtag: "yum",
+							// To test that the offset is present and well calculated
+							offset: 68,
 						},
 					},
 				],
@@ -595,11 +689,12 @@ describe("Multi errors", function() {
 						name: "ScopeParserError",
 						message: "Scope parser compilation failed",
 						properties: {
+							offset: 0,
 							id: "scopeparser_compilation_failed",
 							tag: "name++",
 							rootError: {
-								message:
-									"Syntax Error: Token 'undefined' not a primary expression at column NaN of the expression [name++] starting at [name++].",
+								message: `[$parse:ueoe] Unexpected end of expression: name++
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/ueoe?p0=name%2B%2B`,
 							},
 						},
 					},
@@ -607,11 +702,12 @@ describe("Multi errors", function() {
 						name: "ScopeParserError",
 						message: "Scope parser compilation failed",
 						properties: {
+							offset: 9,
 							id: "scopeparser_compilation_failed",
 							tag: "foo|||bang",
 							rootError: {
-								message:
-									"Syntax Error: Token 'bang' is an unexpected token at column 7 of the expression [foo|||bang] starting at [bang].",
+								message: `[$parse:syntax] Syntax Error: Token '|' not a primary expression at column 6 of the expression [foo|||bang] starting at [|bang].
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/syntax?p0=%7C&p1=not%20a%20primary%20expression&p2=6&p3=foo%7C%7C%7Cbang&p4=%7Cbang`,
 							},
 						},
 					},
@@ -625,7 +721,7 @@ describe("Multi errors", function() {
 		expectToThrow(create, Errors.XTTemplateError, expectedError);
 	});
 
-	it("should fail when customparser fails to compile", function() {
+	it("should fail when customparser fails to compile 2", function() {
 		const content = "<w:t>{name++} {foo|||bang}</w:t>";
 		const expectedError = {
 			message: "Multi error",
@@ -639,8 +735,8 @@ describe("Multi errors", function() {
 							id: "scopeparser_compilation_failed",
 							tag: "name++",
 							rootError: {
-								message:
-									"Syntax Error: Token 'undefined' not a primary expression at column NaN of the expression [name++] starting at [name++].",
+								message: `[$parse:ueoe] Unexpected end of expression: name++
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/ueoe?p0=name%2B%2B`,
 							},
 						},
 					},
@@ -651,8 +747,8 @@ describe("Multi errors", function() {
 							id: "scopeparser_compilation_failed",
 							tag: "foo|||bang",
 							rootError: {
-								message:
-									"Syntax Error: Token 'bang' is an unexpected token at column 7 of the expression [foo|||bang] starting at [bang].",
+								message: `[$parse:syntax] Syntax Error: Token '|' not a primary expression at column 6 of the expression [foo|||bang] starting at [|bang].
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/syntax?p0=%7C&p1=not%20a%20primary%20expression&p2=6&p3=foo%7C%7C%7Cbang&p4=%7Cbang`,
 							},
 						},
 					},
@@ -690,8 +786,8 @@ describe("Multi errors", function() {
 							id: "scopeparser_compilation_failed",
 							tag: "name++",
 							rootError: {
-								message:
-									"Syntax Error: Token 'undefined' not a primary expression at column NaN of the expression [name++] starting at [name++].",
+								message: `[$parse:ueoe] Unexpected end of expression: name++
+http://errors.angularjs.org/"NG_VERSION_FULL"/$parse/ueoe?p0=name%2B%2B`,
 							},
 						},
 					},
@@ -774,7 +870,7 @@ describe("Multi errors", function() {
 							id: "raw_tag_outerxml_invalid",
 							xtag: "bang",
 							rootError: {
-								message: 'No tag "w:p" was found at the right',
+								message: 'No tag "w:p" was found at the left',
 							},
 							postparsedLength: 12,
 							expandTo: "w:p",
@@ -924,7 +1020,7 @@ describe("Multi errors", function() {
 
 describe("Rendering error", function() {
 	it("should show an error when using corrupt characters", function() {
-		const content = "<w:t>{user}</w:t>";
+		const content = "<w:t> {user}</w:t>";
 		const expectedError = {
 			name: "RenderingError",
 			message: "There are some XML corrupt characters",
@@ -932,12 +1028,43 @@ describe("Rendering error", function() {
 				id: "invalid_xml_characters",
 				value: "\u001c",
 				xtag: "user",
+				offset: 1,
 			},
 		};
 		const create = createXmlTemplaterDocx.bind(null, content, {
 			parser: angularParser,
 			tags: { user: String.fromCharCode(28) },
 		});
-		expectToThrow(create, Errors.RenderingError, expectedError);
+		expectToThrow(
+			create,
+			Errors.XTTemplateError,
+			wrapMultiError(expectedError)
+		);
+	});
+});
+
+describe("Async errors", function() {
+	it("should show error when having async promise", function() {
+		const content = "<w:t>{user}</w:t>";
+		const expectedError = {
+			name: "ScopeParserError",
+			message: "Scope parser execution failed",
+			properties: {
+				id: "scopeparser_execution_failed",
+				tag: "user",
+				scope: {
+					user: {},
+				},
+				rootError: {
+					message: "Foobar",
+				},
+			},
+		};
+		const doc = createXmlTemplaterDocxNoRender(content);
+		doc.compile();
+		function create() {
+			return doc.resolveData({ user: rejectSoon(new Error("Foobar")) });
+		}
+		return expectToThrowAsync(create, Errors.XTScopeParserError, expectedError);
 	});
 });

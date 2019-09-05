@@ -8,11 +8,15 @@ module.exports = function(module) {
 		parse: emptyFun,
 		render: emptyFun,
 		getTraits: emptyFun,
+		getFileType: emptyFun,
+		nullGetter: emptyFun,
 		optionsTransformer: identity,
+		postrender: identity,
 		errorsTransformer: identity,
 		getRenderedMap: identity,
 		postparse: identity,
 		on: emptyFun,
+		resolve: emptyFun,
 	};
 	if (
 		Object.keys(defaults).every(function(key) {

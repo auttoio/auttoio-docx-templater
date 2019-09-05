@@ -9,223 +9,373 @@ var _require = require("xmldom"),
 var _require2 = require("./errors"),
     throwXmlTagNotFound = _require2.throwXmlTagNotFound;
 
+var _require3 = require("./utils"),
+    last = _require3.last,
+    first = _require3.first;
+
 function parser(tag) {
-	return _defineProperty({}, "get", function get(scope) {
-		if (tag === ".") {
-			return scope;
-		}
-		return scope[tag];
-	});
+  return _defineProperty({}, "get", function get(scope) {
+    if (tag === ".") {
+      return scope;
+    }
+
+    return scope[tag];
+  });
+}
+
+function getNearestLeft(parsed, elements, index) {
+  for (var i = index; i >= 0; i--) {
+    var part = parsed[i];
+
+    for (var j = 0, len = elements.length; j < len; j++) {
+      var element = elements[j];
+
+      if (isStarting(part.value, element)) {
+        return elements[j];
+      }
+    }
+  }
+
+  return null;
+}
+
+function getNearestRight(parsed, elements, index) {
+  for (var i = index, l = parsed.length; i < l; i++) {
+    var part = parsed[i];
+
+    for (var j = 0, len = elements.length; j < len; j++) {
+      var element = elements[j];
+
+      if (isEnding(part.value, element)) {
+        return elements[j];
+      }
+    }
+  }
+
+  return -1;
+}
+
+function endsWith(str, suffix) {
+  return str.indexOf(suffix, str.length - suffix.length) !== -1;
+}
+
+function startsWith(str, prefix) {
+  return str.substring(0, prefix.length) === prefix;
 }
 
 function unique(arr) {
-	var hash = {},
-	    result = [];
-	for (var i = 0, l = arr.length; i < l; ++i) {
-		if (!hash.hasOwnProperty(arr[i])) {
-			hash[arr[i]] = true;
-			result.push(arr[i]);
-		}
-	}
-	return result;
+  var hash = {},
+      result = [];
+
+  for (var i = 0, l = arr.length; i < l; ++i) {
+    if (!hash.hasOwnProperty(arr[i])) {
+      hash[arr[i]] = true;
+      result.push(arr[i]);
+    }
+  }
+
+  return result;
 }
 
 function chunkBy(parsed, f) {
-	return parsed.reduce(function (chunks, p) {
-		var currentChunk = last(chunks);
-		if (currentChunk.length === 0) {
-			currentChunk.push(p);
-			return chunks;
-		}
-		var res = f(p);
-		if (res === "start") {
-			chunks.push([p]);
-		} else if (res === "end") {
-			currentChunk.push(p);
-			chunks.push([]);
-		} else {
-			currentChunk.push(p);
-		}
-		return chunks;
-	}, [[]]).filter(function (p) {
-		return p.length > 0;
-	});
-}
+  return parsed.reduce(function (chunks, p) {
+    var currentChunk = last(chunks);
+    var res = f(p);
 
-function last(a) {
-	return a[a.length - 1];
+    if (currentChunk.length === 0) {
+      currentChunk.push(p);
+      return chunks;
+    }
+
+    if (res === "start") {
+      chunks.push([p]);
+    } else if (res === "end") {
+      currentChunk.push(p);
+      chunks.push([]);
+    } else {
+      currentChunk.push(p);
+    }
+
+    return chunks;
+  }, [[]]).filter(function (p) {
+    return p.length > 0;
+  });
 }
 
 var defaults = {
-	nullGetter: function nullGetter(part) {
-		if (!part.module) {
-			return "undefined";
-		}
-		if (part.module === "rawxml") {
-			return "";
-		}
-		return "";
-	},
+  nullGetter: function nullGetter(part) {
+    if (!part.module) {
+      return "undefined";
+    }
 
-	xmlFileNames: [],
-	parser: parser,
-	delimiters: {
-		start: "{",
-		end: "}"
-	}
+    if (part.module === "rawxml") {
+      return "";
+    }
+
+    return "";
+  },
+  xmlFileNames: [],
+  parser: parser,
+  linebreaks: false,
+  delimiters: {
+    start: "{",
+    end: "}"
+  }
 };
 
 function mergeObjects() {
-	var resObj = {};
-	var obj = void 0,
-	    keys = void 0;
-	for (var i = 0; i < arguments.length; i += 1) {
-		obj = arguments[i];
-		keys = Object.keys(obj);
-		for (var j = 0; j < keys.length; j += 1) {
-			resObj[keys[j]] = obj[keys[j]];
-		}
-	}
-	return resObj;
+  var resObj = {};
+  var obj, keys;
+
+  for (var i = 0; i < arguments.length; i += 1) {
+    obj = arguments[i];
+    keys = Object.keys(obj);
+
+    for (var j = 0; j < keys.length; j += 1) {
+      resObj[keys[j]] = obj[keys[j]];
+    }
+  }
+
+  return resObj;
 }
 
 function xml2str(xmlNode) {
-	var a = new XMLSerializer();
-	return a.serializeToString(xmlNode).replace(/xmlns:[a-z0-9]+="" ?/g, "");
+  var a = new XMLSerializer();
+  return a.serializeToString(xmlNode).replace(/xmlns(:[a-z0-9]+)?="" ?/g, "");
 }
 
-function str2xml(str, errorHandler) {
-	var parser = new DOMParser({ errorHandler: errorHandler });
-	return parser.parseFromString(str, "text/xml");
+function str2xml(str) {
+  if (str.charCodeAt(0) === 65279) {
+    // BOM sequence
+    str = str.substr(1);
+  }
+
+  var parser = new DOMParser();
+  return parser.parseFromString(str, "text/xml");
 }
 
 var charMap = {
-	"&": "&amp;",
-	"'": "&apos;",
-	"<": "&lt;",
-	">": "&gt;",
-	'"': "&quot;"
+  "&": "&amp;",
+  "'": "&apos;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;"
 };
 
-var regexStripRegexp = /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g;
 function escapeRegExp(str) {
-	return str.replace(regexStripRegexp, "\\$&");
+  // to be able to use a string as a regex
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 var charMapRegexes = Object.keys(charMap).map(function (endChar) {
-	var startChar = charMap[endChar];
-	return {
-		rstart: new RegExp(escapeRegExp(startChar), "g"),
-		rend: new RegExp(escapeRegExp(endChar), "g"),
-		start: startChar,
-		end: endChar
-	};
+  var startChar = charMap[endChar];
+  return {
+    rstart: new RegExp(escapeRegExp(startChar), "g"),
+    rend: new RegExp(escapeRegExp(endChar), "g"),
+    start: startChar,
+    end: endChar
+  };
 });
 
 function wordToUtf8(string) {
-	var r = void 0;
-	for (var i = 0, l = charMapRegexes.length; i < l; i++) {
-		r = charMapRegexes[i];
-		string = string.replace(r.rstart, r.end);
-	}
-	return string;
+  var r;
+
+  for (var i = 0, l = charMapRegexes.length; i < l; i++) {
+    r = charMapRegexes[i];
+    string = string.replace(r.rstart, r.end);
+  }
+
+  return string;
 }
 
 function utf8ToWord(string) {
-	if (typeof string !== "string") {
-		string = string.toString();
-	}
-	var r = void 0;
-	for (var i = 0, l = charMapRegexes.length; i < l; i++) {
-		r = charMapRegexes[i];
-		string = string.replace(r.rend, r.start);
-	}
-	return string;
-}
+  if (typeof string !== "string") {
+    string = string.toString();
+  }
 
-// This function is written with for loops for performance
+  var r;
+
+  for (var i = 0, l = charMapRegexes.length; i < l; i++) {
+    r = charMapRegexes[i];
+    string = string.replace(r.rend, r.start);
+  }
+
+  return string;
+} // This function is written with for loops for performance
+
+
 function concatArrays(arrays) {
-	var result = [];
-	for (var i = 0; i < arrays.length; i++) {
-		var array = arrays[i];
-		for (var j = 0, len = array.length; j < len; j++) {
-			result.push(array[j]);
-		}
-	}
-	return result;
+  var result = [];
+
+  for (var i = 0; i < arrays.length; i++) {
+    var array = arrays[i];
+
+    for (var j = 0, len = array.length; j < len; j++) {
+      result.push(array[j]);
+    }
+  }
+
+  return result;
 }
 
 var spaceRegexp = new RegExp(String.fromCharCode(160), "g");
+
 function convertSpaces(s) {
-	return s.replace(spaceRegexp, " ");
+  return s.replace(spaceRegexp, " ");
 }
+
 function pregMatchAll(regex, content) {
-	/* regex is a string, content is the content. It returns an array of all matches with their offset, for example:
- 	 regex=la
- 	 content=lolalolilala
- returns: [{array: {0: 'la'},offset: 2},{array: {0: 'la'},offset: 8},{array: {0: 'la'} ,offset: 10}]
- */
-	var matchArray = [];
-	var match = void 0;
-	while ((match = regex.exec(content)) != null) {
-		matchArray.push({ array: match, offset: match.index });
-	}
-	return matchArray;
+  /* regex is a string, content is the content. It returns an array of all matches with their offset, for example:
+  	 regex=la
+  	 content=lolalolilala
+  returns: [{array: {0: 'la'},offset: 2},{array: {0: 'la'},offset: 8},{array: {0: 'la'} ,offset: 10}]
+  */
+  var matchArray = [];
+  var match;
+
+  while ((match = regex.exec(content)) != null) {
+    matchArray.push({
+      array: match,
+      offset: match.index
+    });
+  }
+
+  return matchArray;
+}
+
+function isEnding(value, element) {
+  return value === "</" + element + ">";
+}
+
+function isStarting(value, element) {
+  return value.indexOf("<" + element) === 0 && [">", " "].indexOf(value[element.length + 1]) !== -1;
 }
 
 function getRight(parsed, element, index) {
-	for (var i = index, l = parsed.length; i < l; i++) {
-		var part = parsed[i];
-		if (part.value === "</" + element + ">") {
-			return i;
-		}
-	}
-	throwXmlTagNotFound({ position: "right", element: element, parsed: parsed, index: index });
+  var val = getRightOrNull(parsed, element, index);
+
+  if (val !== null) {
+    return val;
+  }
+
+  throwXmlTagNotFound({
+    position: "right",
+    element: element,
+    parsed: parsed,
+    index: index
+  });
+}
+
+function getRightOrNull(parsed, elements, index) {
+  if (typeof elements === "string") {
+    elements = [elements];
+  }
+
+  var level = 1;
+
+  for (var i = index, l = parsed.length; i < l; i++) {
+    var part = parsed[i];
+
+    for (var j = 0, len = elements.length; j < len; j++) {
+      var element = elements[j];
+
+      if (isEnding(part.value, element)) {
+        level--;
+      }
+
+      if (isStarting(part.value, element)) {
+        level++;
+      }
+
+      if (level === 0) {
+        return i;
+      }
+    }
+  }
+
+  return null;
 }
 
 function getLeft(parsed, element, index) {
-	for (var i = index; i >= 0; i--) {
-		var part = parsed[i];
-		if (part.value.indexOf("<" + element) === 0 && [">", " "].indexOf(part.value[element.length + 1]) !== -1) {
-			return i;
-		}
-	}
-	throwXmlTagNotFound({ position: "left", element: element, parsed: parsed, index: index });
+  var val = getLeftOrNull(parsed, element, index);
+
+  if (val !== null) {
+    return val;
+  }
+
+  throwXmlTagNotFound({
+    position: "left",
+    element: element,
+    parsed: parsed,
+    index: index
+  });
+}
+
+function getLeftOrNull(parsed, elements, index) {
+  if (typeof elements === "string") {
+    elements = [elements];
+  }
+
+  var level = 1;
+
+  for (var i = index; i >= 0; i--) {
+    var part = parsed[i];
+
+    for (var j = 0, len = elements.length; j < len; j++) {
+      var element = elements[j];
+
+      if (isStarting(part.value, element)) {
+        level--;
+      }
+
+      if (isEnding(part.value, element)) {
+        level++;
+      }
+
+      if (level === 0) {
+        return i;
+      }
+    }
+  }
+
+  return null;
 }
 
 function isTagStart(tagType, _ref2) {
-	var type = _ref2.type,
-	    tag = _ref2.tag,
-	    position = _ref2.position;
-
-	return type === "tag" && tag === tagType && position === "start";
+  var type = _ref2.type,
+      tag = _ref2.tag,
+      position = _ref2.position;
+  return type === "tag" && tag === tagType && position === "start";
 }
+
 function isTagEnd(tagType, _ref3) {
-	var type = _ref3.type,
-	    tag = _ref3.tag,
-	    position = _ref3.position;
+  var type = _ref3.type,
+      tag = _ref3.tag,
+      position = _ref3.position;
+  return type === "tag" && tag === tagType && position === "end";
+}
 
-	return type === "tag" && tag === tagType && position === "end";
-}
 function isParagraphStart(options) {
-	return isTagStart("w:p", options) || isTagStart("a:p", options);
+  return isTagStart("w:p", options) || isTagStart("a:p", options);
 }
+
 function isParagraphEnd(options) {
-	return isTagEnd("w:p", options) || isTagEnd("a:p", options);
+  return isTagEnd("w:p", options) || isTagEnd("a:p", options);
 }
+
 function isTextStart(part) {
-	return part.type === "tag" && part.position === "start" && part.text;
+  return part.type === "tag" && part.position === "start" && part.text;
 }
+
 function isTextEnd(part) {
-	return part.type === "tag" && part.position === "end" && part.text;
+  return part.type === "tag" && part.position === "end" && part.text;
 }
 
 function isContent(p) {
-	return p.type === "placeholder" || p.type === "content" && p.position === "insidetag";
+  return p.type === "placeholder" || p.type === "content" && p.position === "insidetag";
 }
 
-var corruptCharacters = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
-// 00    NUL '\0' (null character)
+var corruptCharacters = /[\x00-\x08\x0B\x0C\x0E-\x1F]/; // 00    NUL '\0' (null character)
 // 01    SOH (start of heading)
 // 02    STX (start of text)
 // 03    ETX (end of text)
@@ -254,34 +404,42 @@ var corruptCharacters = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
 // 1D    GS  (group separator)
 // 1E    RS  (record separator)
 // 1F    US  (unit separator)
+
 function hasCorruptCharacters(string) {
-	return corruptCharacters.test(string);
+  return corruptCharacters.test(string);
 }
 
 module.exports = {
-	isContent: isContent,
-	isParagraphStart: isParagraphStart,
-	isParagraphEnd: isParagraphEnd,
-	isTagStart: isTagStart,
-	isTagEnd: isTagEnd,
-	isTextStart: isTextStart,
-	isTextEnd: isTextEnd,
-	unique: unique,
-	chunkBy: chunkBy,
-	last: last,
-	mergeObjects: mergeObjects,
-	xml2str: xml2str,
-	str2xml: str2xml,
-	getRight: getRight,
-	getLeft: getLeft,
-	pregMatchAll: pregMatchAll,
-	convertSpaces: convertSpaces,
-	escapeRegExp: escapeRegExp,
-	charMapRegexes: charMapRegexes,
-	hasCorruptCharacters: hasCorruptCharacters,
-	defaults: defaults,
-	wordToUtf8: wordToUtf8,
-	utf8ToWord: utf8ToWord,
-	concatArrays: concatArrays,
-	charMap: charMap
+  endsWith: endsWith,
+  startsWith: startsWith,
+  getNearestLeft: getNearestLeft,
+  getNearestRight: getNearestRight,
+  isContent: isContent,
+  isParagraphStart: isParagraphStart,
+  isParagraphEnd: isParagraphEnd,
+  isTagStart: isTagStart,
+  isTagEnd: isTagEnd,
+  isTextStart: isTextStart,
+  isTextEnd: isTextEnd,
+  unique: unique,
+  chunkBy: chunkBy,
+  last: last,
+  first: first,
+  mergeObjects: mergeObjects,
+  xml2str: xml2str,
+  str2xml: str2xml,
+  getRightOrNull: getRightOrNull,
+  getRight: getRight,
+  getLeftOrNull: getLeftOrNull,
+  getLeft: getLeft,
+  pregMatchAll: pregMatchAll,
+  convertSpaces: convertSpaces,
+  escapeRegExp: escapeRegExp,
+  charMapRegexes: charMapRegexes,
+  hasCorruptCharacters: hasCorruptCharacters,
+  defaults: defaults,
+  wordToUtf8: wordToUtf8,
+  utf8ToWord: utf8ToWord,
+  concatArrays: concatArrays,
+  charMap: charMap
 };

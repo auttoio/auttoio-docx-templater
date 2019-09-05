@@ -1,11 +1,17 @@
 const traits = require("../traits");
-const { isContent } = require("../doc-utils");
+const { isContent, getNearestLeft, getNearestRight } = require("../doc-utils");
 const { throwRawTagShouldBeOnlyTextInParagraph } = require("../errors");
+const { match, getValue } = require("../prefix-matcher");
 
 const moduleName = "rawxml";
 const wrapper = require("../module-wrapper");
 
 function getInner({ part, left, right, postparsed, index }) {
+	const before = getNearestLeft(postparsed, ["w:p", "w:tc"], left - 1);
+	const after = getNearestRight(postparsed, ["w:p", "w:tc"], right + 1);
+	if (after === "w:tc" && before === "w:tc") {
+		part.emptyValue = "<w:p></w:p>";
+	}
 	const paragraphParts = postparsed.slice(left + 1, right);
 	paragraphParts.forEach(function(p, i) {
 		if (i === index - left - 1) {
@@ -29,10 +35,14 @@ class RawXmlModule {
 	}
 	parse(placeHolderContent) {
 		const type = "placeholder";
-		if (placeHolderContent[0] !== this.prefix) {
-			return null;
+		if (match(this.prefix, placeHolderContent)) {
+			return {
+				type,
+				value: getValue(this.prefix, placeHolderContent),
+				module: moduleName,
+			};
 		}
-		return { type, value: placeHolderContent.substr(1), module: moduleName };
+		return null;
 	}
 	postparse(postparsed) {
 		return traits.expandToOne(postparsed, {
@@ -45,11 +55,27 @@ class RawXmlModule {
 		if (part.module !== moduleName) {
 			return null;
 		}
-		let value = options.scopeManager.getValue(part.value);
+		let value = options.scopeManager.getValue(part.value, { part });
 		if (value == null) {
 			value = options.nullGetter(part);
 		}
+		if (!value) {
+			return { value: part.emptyValue || "" };
+		}
 		return { value };
+	}
+	resolve(part, options) {
+		if (part.type !== "placeholder" || part.module !== moduleName) {
+			return null;
+		}
+		return options.scopeManager
+			.getValueAsync(part.value, { part })
+			.then(function(value) {
+				if (value == null) {
+					return options.nullGetter(part);
+				}
+				return value;
+			});
 	}
 }
 
