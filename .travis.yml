@@ -1,0 +1,27 @@
+language: node_js
+sudo: false
+matrix:
+  include:
+  - node_js: stable
+    env: COMMAND=preversion BROWSER=SAUCELABS
+    addons:
+      sauce_connect:
+        username: jsninja
+  - node_js: '6'
+    env: COMMAND=mocha
+  - node_js: '8'
+    env: COMMAND=mocha
+  - node_js: '10'
+    env: COMMAND=mocha
+  - node_js: '11'
+    env: COMMAND=mocha
+  - node_js: '12'
+    env: COMMAND=mocha
+script:
+- nvm install stable
+- npm run convertto:es5
+- nvm use $TRAVIS_NODE_VERSION
+- npm run "$COMMAND"
+env:
+  global:
+    secure: g1ARget5BKlFULokT+BUbF0cjUdJqvcLB9V0CNwyjiabSRobyAtnrgthzBr7f5zgQzDOWVfHFNvFSm9T7d4DyFZsCtDj3A0O/de0nCgHzKjMUvskhEAmYD2lwqxr1reM6ZmGNRXiilhWSzYpTK8aEc/67YoOxHT8nLFVxfhi9rs=
