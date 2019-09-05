@@ -1,12 +1,12 @@
-"use strict";
-
 const { wordToUtf8, convertSpaces, defaults } = require("./doc-utils");
 const createScope = require("./scope-manager");
 const xmlMatcher = require("./xml-matcher");
 const { throwMultiError, throwContentMustBeString } = require("./errors");
 const Lexer = require("./lexer");
 const Parser = require("./parser.js");
-const { render } = require("./render.js");
+const render = require("./render.js");
+const postrender = require("./postrender.js");
+const resolve = require("./resolve.js");
 
 function getFullText(content, tagsXmlArray) {
 	const matcher = xmlMatcher(content, tagsXmlArray);
@@ -18,7 +18,12 @@ function getFullText(content, tagsXmlArray) {
 
 module.exports = class XmlTemplater {
 	constructor(content, options) {
-		this.fromJson(options);
+		this.filePath = options.filePath;
+		this.modules = options.modules;
+		this.fileTypeConfig = options.fileTypeConfig;
+		Object.keys(defaults).map(function(key) {
+			this[key] = options[key] != null ? options[key] : defaults[key];
+		}, this);
 		this.setModules({ inspect: { filePath: this.filePath } });
 		this.load(content);
 	}
@@ -33,13 +38,22 @@ module.exports = class XmlTemplater {
 		this.scopeManager = createScope({ tags: this.tags, parser: this.parser });
 		return this;
 	}
-	fromJson(options) {
-		this.filePath = options.filePath;
-		this.modules = options.modules;
-		this.fileTypeConfig = options.fileTypeConfig;
-		Object.keys(defaults).map(function(key) {
-			this[key] = options[key] != null ? options[key] : defaults[key];
-		}, this);
+	resolveTags(tags) {
+		this.tags = tags != null ? tags : {};
+		this.scopeManager = createScope({ tags: this.tags, parser: this.parser });
+		const options = this.getOptions();
+		options.scopeManager = createScope(options);
+		options.resolve = resolve;
+		return resolve(options).then(({ resolved }) => {
+			return Promise.all(
+				resolved.map(function(r) {
+					return Promise.resolve(r);
+				})
+			).then(resolved => {
+				this.setModules({ inspect: { resolved } });
+				return (this.resolved = resolved);
+			});
+		});
 	}
 	getFullText() {
 		return getFullText(this.content, this.fileTypeConfig.tagsXmlTextArray);
@@ -86,26 +100,39 @@ module.exports = class XmlTemplater {
 			throwMultiError(errors);
 		}
 	}
-	/*
-	content is the whole content to be tagged
-	scope is the current scope
-	returns the new content of the tagged content
-	*/
-	render(to) {
-		this.filePath = to;
-		const options = {
+	baseNullGetter(part, sm) {
+		const value = this.modules.reduce((value, module) => {
+			if (value != null) {
+				return value;
+			}
+			return module.nullGetter(part, sm, this);
+		}, null);
+		if (value != null) {
+			return value;
+		}
+		return this.nullGetter(part, sm);
+	}
+	getOptions() {
+		return {
 			compiled: this.postparsed,
 			tags: this.tags,
 			modules: this.modules,
 			parser: this.parser,
-			nullGetter: this.nullGetter,
+			baseNullGetter: this.baseNullGetter.bind(this),
 			filePath: this.filePath,
-			render,
+			linebreaks: this.linebreaks,
 		};
+	}
+	render(to) {
+		this.filePath = to;
+		const options = this.getOptions();
+		options.resolved = this.resolved;
 		options.scopeManager = createScope(options);
+		options.render = render;
 		const { errors, parts } = render(options);
 		this.errorChecker(errors);
-		this.content = parts.join("");
+
+		this.content = postrender(parts, options);
 		this.setModules({ inspect: { content: this.content } });
 		return this;
 	}

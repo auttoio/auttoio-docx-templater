@@ -3,11 +3,17 @@
 const DocUtils = require("./doc-utils");
 DocUtils.traits = require("./traits");
 DocUtils.moduleWrapper = require("./module-wrapper");
+
+const commonModule = require("./modules/common");
+const ctXML = "[Content_Types].xml";
+
+const Lexer = require("./lexer");
 const {
 	defaults,
 	str2xml,
 	xml2str,
 	moduleWrapper,
+	utf8ToWord,
 	concatArrays,
 	unique,
 } = DocUtils;
@@ -15,18 +21,60 @@ const {
 	XTInternalError,
 	throwFileTypeNotIdentified,
 	throwFileTypeNotHandled,
+	throwApiVersionError,
 } = require("./errors");
+
+const currentModuleApiVersion = [3, 12, 0];
 
 const Docxtemplater = class Docxtemplater {
 	constructor() {
 		if (arguments.length > 0) {
 			throw new Error(
-				"The constructor with parameters has been removed in docxtemplater 3.0, please check the upgrade guide."
+				"The constructor with parameters has been removed in docxtemplater 3, please check the upgrade guide."
 			);
 		}
 		this.compiled = {};
-		this.modules = [];
+		this.modules = [commonModule()];
 		this.setOptions({});
+	}
+	getModuleApiVersion() {
+		return currentModuleApiVersion.join(".");
+	}
+	verifyApiVersion(neededVersion) {
+		neededVersion = neededVersion.split(".").map(function(i) {
+			return parseInt(i, 10);
+		});
+		if (neededVersion.length !== 3) {
+			throwApiVersionError("neededVersion is not a valid version", {
+				neededVersion,
+				explanation: "the neededVersion must be an array of length 3",
+			});
+		}
+		if (neededVersion[0] !== currentModuleApiVersion[0]) {
+			throwApiVersionError(
+				"The major api version do not match, you probably have to update docxtemplater with npm install --save docxtemplater",
+				{
+					neededVersion,
+					currentModuleApiVersion,
+					explanation: `moduleAPIVersionMismatch : needed=${neededVersion.join(
+						"."
+					)}, current=${currentModuleApiVersion.join(".")}`,
+				}
+			);
+		}
+		if (neededVersion[1] > currentModuleApiVersion[1]) {
+			throwApiVersionError(
+				"The minor api version is not uptodate, you probably have to update docxtemplater with npm install --save docxtemplater",
+				{
+					neededVersion,
+					currentModuleApiVersion,
+					explanation: `moduleAPIVersionMismatch : needed=${neededVersion.join(
+						"."
+					)}, current=${currentModuleApiVersion.join(".")}`,
+				}
+			);
+		}
+		return true;
 	}
 	setModules(obj) {
 		this.modules.forEach(module => {
@@ -39,14 +87,23 @@ const Docxtemplater = class Docxtemplater {
 		});
 	}
 	attachModule(module, options = {}) {
+		if (module.requiredAPIVersion) {
+			this.verifyApiVersion(module.requiredAPIVersion);
+		}
 		const { prefix } = options;
 		if (prefix) {
 			module.prefix = prefix;
 		}
-		this.modules.push(moduleWrapper(module));
+		const wrappedModule = moduleWrapper(module);
+		this.modules.push(wrappedModule);
+		wrappedModule.on("attached");
 		return this;
 	}
 	setOptions(options) {
+		if (options.delimiters) {
+			options.delimiters.start = utf8ToWord(options.delimiters.start);
+			options.delimiters.end = utf8ToWord(options.delimiters.end);
+		}
 		this.options = options;
 		Object.keys(defaults).forEach(key => {
 			const defaultValue = defaults[key];
@@ -62,7 +119,7 @@ const Docxtemplater = class Docxtemplater {
 	loadZip(zip) {
 		if (zip.loadAsync) {
 			throw new XTInternalError(
-				"Docxtemplater doesn't handle JSZip version >=3, see changelog"
+				"Docxtemplater doesn't handle JSZip version >=3, please use pizzip"
 			);
 		}
 		this.zip = zip;
@@ -80,6 +137,16 @@ const Docxtemplater = class Docxtemplater {
 		const currentFile = this.createTemplateClass(fileName);
 		currentFile.parse();
 		this.compiled[fileName] = currentFile;
+	}
+	resolveData(data) {
+		return Promise.all(
+			Object.keys(this.compiled).map(from => {
+				const currentFile = this.compiled[from];
+				return currentFile.resolveTags(data);
+			})
+		).then(resolved => {
+			return concatArrays(resolved);
+		});
 	}
 	compile() {
 		if (Object.keys(this.compiled).length) {
@@ -100,7 +167,6 @@ const Docxtemplater = class Docxtemplater {
 		this.setModules({
 			zip: this.zip,
 			xmlDocuments: this.xmlDocuments,
-			data: this.data,
 		});
 		this.getTemplatedFiles();
 		this.setModules({ compiled: this.compiled });
@@ -118,16 +184,26 @@ const Docxtemplater = class Docxtemplater {
 		if (this.zip.files.mimetype) {
 			fileType = "odt";
 		}
-		if (
-			this.zip.files["word/document.xml"] ||
-			this.zip.files["word/document2.xml"]
-		) {
-			fileType = "docx";
-		}
-		if (this.zip.files["ppt/presentation.xml"]) {
-			fileType = "pptx";
-		}
-
+		const contentTypes = this.zip.files[ctXML];
+		this.targets = [];
+		const contentTypeXml = contentTypes ? str2xml(contentTypes.asText()) : null;
+		const overrides = contentTypeXml
+			? contentTypeXml.getElementsByTagName("Override")
+			: null;
+		const defaults = contentTypeXml
+			? contentTypeXml.getElementsByTagName("Default")
+			: null;
+		this.modules.forEach(module => {
+			fileType =
+				module.getFileType({
+					zip: this.zip,
+					contentTypes,
+					contentTypeXml,
+					overrides,
+					defaults,
+					doc: this,
+				}) || fileType;
+		});
 		if (fileType === "odt") {
 			throwFileTypeNotHandled(fileType);
 		}
@@ -137,11 +213,16 @@ const Docxtemplater = class Docxtemplater {
 		this.fileType = fileType;
 		this.fileTypeConfig =
 			this.options.fileTypeConfig ||
+			this.fileTypeConfig ||
 			Docxtemplater.FileTypeConfig[this.fileType];
 		return this;
 	}
 	render() {
 		this.compile();
+		this.setModules({
+			data: this.data,
+			Lexer,
+		});
 		this.mapper = this.modules.reduce(function(value, module) {
 			return module.getRenderedMap(value);
 		}, {});
@@ -195,11 +276,14 @@ const Docxtemplater = class Docxtemplater {
 	}
 	getFullText(path) {
 		return this.createTemplateClass(
-			path || this.fileTypeConfig.textPath(this.zip)
+			path || this.fileTypeConfig.textPath(this)
 		).getFullText();
 	}
 	getTemplatedFiles() {
 		this.templatedFiles = this.fileTypeConfig.getTemplatedFiles(this.zip);
+		this.targets.forEach(target => {
+			this.templatedFiles.push(target);
+		});
 		return this.templatedFiles;
 	}
 };

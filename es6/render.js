@@ -1,14 +1,7 @@
 "use strict";
 
-const {
-	utf8ToWord,
-	concatArrays,
-	hasCorruptCharacters,
-} = require("./doc-utils");
-const {
-	throwUnimplementedTagType,
-	throwCorruptCharacters,
-} = require("./errors");
+const { concatArrays } = require("./doc-utils");
+const { throwUnimplementedTagType } = require("./errors");
 
 function moduleRender(part, options) {
 	let moduleRendered;
@@ -23,9 +16,20 @@ function moduleRender(part, options) {
 }
 
 function render(options) {
-	const { compiled, scopeManager, nullGetter } = options;
+	const baseNullGetter = options.baseNullGetter;
+	const { compiled, scopeManager } = options;
+	options.nullGetter = (part, sm) => {
+		return baseNullGetter(part, sm || scopeManager);
+	};
+	if (!options.prefix) {
+		options.prefix = "";
+	}
+	if (options.index) {
+		options.prefix = options.prefix + options.index + "-";
+	}
 	let errors = [];
-	const parts = compiled.map(function(part) {
+	const parts = compiled.map(function(part, i) {
+		options.index = i;
 		const moduleRendered = moduleRender(part, options);
 		if (moduleRendered) {
 			if (moduleRendered.errors) {
@@ -33,22 +37,12 @@ function render(options) {
 			}
 			return moduleRendered.value;
 		}
-		if (part.type === "placeholder") {
-			let value = scopeManager.getValue(part.value);
-			if (value == null) {
-				value = nullGetter(part);
-			}
-			if (hasCorruptCharacters(value)) {
-				throwCorruptCharacters({ tag: part.value, value });
-			}
-			return utf8ToWord(value);
-		}
 		if (part.type === "content" || part.type === "tag") {
 			return part.value;
 		}
-		throwUnimplementedTagType(part);
+		throwUnimplementedTagType(part, i);
 	});
 	return { errors, parts };
 }
 
-module.exports = { render };
+module.exports = render;

@@ -11,31 +11,9 @@ Inserting new lines
 
 .. code-block:: javascript
 
-    pre = '<w:p><w:r><w:t>';
-    post = '</w:t></w:r></w:p>';
-    lineBreak = '<w:br/>';
-    text = pre + 'testing line 1' + lineBreak + 'testing line 2' + post;
-    data = {text : text}
-    docx.setData(data)
+    doc.setOptions({linebreaks: true})
 
-then in your template, just put {@text} instead of the usual {text}
-
-If you use the angular-parser, you can also write a filter like this:
-
-.. code-block:: javascript
-
-    angularexpressions.filters.raw = function (text) {
-        var lines = text.split("\n");
-        var pre = "<w:p><w:r><w:t>";
-        var post = "</w:t></w:r></w:p>";
-        var lineBreak = "<w:br/>";
-        return pre + lines.join(lineBreak) + post;
-    }
-    data = {text: "testing line 1 \n testing line 2"};
-    docx.setData(data)
-
-
-and then have your docx as : {@text|raw}
+then in your data, if a string contains a newline, it will be translated to a linebreak in the document.
 
 Insert HTML formatted text
 --------------------------
@@ -110,20 +88,20 @@ Support for IE9 and lower
 
 docxtemplater should work on almost all browsers as of version 1 : IE7 + . Safari, Chrome, Opera, Firefox.
 
-The only 'problem' is to load the binary file into the browser. This is not in docxtemplater's scope, but here is the code that jszip's creator recommends to use to load the zip from the browser:
+The only 'problem' is to load the binary file into the browser. This is not in docxtemplater's scope, but here is the recommended code to load the zip from the browser:
 
-https://stuk.github.io/jszip/documentation/howto/read_zip.html
+https://github.com/open-xml-templating/pizzip/blob/master/documentation/howto/read_zip.md
 
 The following code should load the binary content on all browsers:
 
 .. code-block:: javascript
 
-    JSZipUtils.getBinaryContent('path/to/content.zip', function(err, data) {
+    PizZipUtils.getBinaryContent('path/to/content.zip', function(err, data) {
       if(err) {
         throw err; // or handle err
       }
 
-      var zip = new JSZip(data);
+      var zip = new PizZip(data);
     });
 
 Get list of placeholders
@@ -174,6 +152,12 @@ It will log this object :
         },
     }
 
+You can also get a more detailled tree by using : 
+
+.. code-block:: javascript
+
+    console.log(iModule.fullInspected["word/document.xml"]);
+
 The code of the inspect-module is very simple, and can be found here : https://github.com/open-xml-templating/docxtemplater/blob/master/es6/inspect-module.js
 
 Convert to PDF
@@ -210,3 +194,143 @@ Pptx support
 Docxtemplater handles pptx files without any special configuration (since version 3.0.4).
 
 It does so by detecting whether there is a file called "/word/document.xml", if there is one, the file is "docx", if not, it is pptx.
+
+My document is corrupted, what should I do ?
+--------------------------------------------
+
+If you are inserting multiple images inside a loop, it is possible that word cannot handle the docPr attributes correctly. You can try to add the following code instead of your `doc.render` call : 
+
+.. code-block:: javascript
+
+    const str2xml = Docxtemplater.DocUtils.str2xml;
+    const xml2str = Docxtemplater.DocUtils.xml2str;
+    doc.render();
+    const zip = doc.getZip();
+    let prId = 1;
+    zip.file(/\.xml$/).forEach(function (f) {
+        const xml = str2xml(f.asText());
+        const nodes = xml.childNodes[0];
+        const pr = xml.getElementsByTagName("wp:docPr");
+        for (var i = 0, len = pr.length; i < len; i++) {
+            pr[i].setAttribute("id", prId++);
+        }
+        const text = xml2str(xml);
+        zip.file(f.name, text);
+    });
+
+Attaching modules for extra functionality
+-----------------------------------------
+
+If you have created or have access to docxtemplater PRO modules, you can attach them with the following code : 
+
+
+.. code-block:: javascript
+
+    var doc = new Docxtemplater();
+    doc.loadZip(zip);
+
+    // You can call attachModule for each modules you wish to include
+    doc.attachModule(imageModule)
+    doc.attachModule(htmlModule)
+
+    //set the templateVariables
+    doc.setData(data);
+
+Ternaries are not working well with angular-parser
+--------------------------------------------------
+
+There is a common issue which is to use ternary on scopes that are not the current scope, which makes the ternary appear as if it always showed the second option.
+
+For example, with following data : 
+
+.. code-block:: javascript
+
+   doc.setData({
+      user: {
+         gender: 'F',
+         name: "Mary",
+         hobbies: [{
+            name: 'play football',
+         },{
+            name: 'read books',
+         }]
+      }
+   })
+
+And by using the following template :
+
+.. code-block:: text
+
+   {#user}
+   {name} is a kind person.
+
+   {#hobbies}
+   - {gender == 'F' : 'She' : 'He'} likes to {name}
+   {/hobbies}
+   {/}
+
+This will print : 
+
+
+.. code-block:: text
+
+   Mary is a kind person.
+
+   - He likes to play football
+   - He likes to read books
+
+Note that the pronoun "He" is used instead of "She".
+
+The reason for this behavior is that the {gender == 'F' : "She" : "He"} expression is evaluating in the scope of hobby, where gender does not even exist. Since the condtion `gender == 'F'` is false (since gender is undefined), the return value is "He". However, in the scope of the hobby, we do not know the gender so the return value should be null.
+
+We can instead write a custom filter that will return "She" if the input is "F", "He" if the input is "M", and null if the input is anything else.
+
+The code would look like this : 
+
+.. code-block:: javascript
+
+    expressions.filters.pronoun = function(input) {
+      if(input === "F") {
+         return "She";
+      }
+      if(input === "M") {
+         return "He";
+      }
+      return null;
+    }
+
+And use the following in your template :
+
+.. code-block:: text
+
+   {#user}
+   {name} is a kind person.
+
+   {#hobbies}
+   - {gender | pronoun} likes to {name}
+   {/hobbies}
+   {/}
+
+
+Access to XMLHttpRequest at file.docx from origin 'null' has been blocked by CORS policy
+----------------------------------------------------------------------------------------
+
+.. _cors:
+
+This happens if you use the HTML sample script but are not using a webserver.
+
+If your browser window shows a URL starting with `file://`, then you are not using a webserver, but the filesystem itself. 
+
+For security reasons, the browsers don't let you load files from the local file system.
+
+To do this, you have to setup a small web server.
+
+The simplest way of starting a webserver is to run following command : 
+
+.. code-block:: bash
+
+   npx http-server
+   # if you don't have npx, you can also do :
+   # npm install -g http-server && http-server .
+
+On your production server, you should probably use a more robust webserver such as nginx, or any webserver that you are currently using for static files.

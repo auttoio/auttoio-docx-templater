@@ -1,12 +1,21 @@
 const { wordToUtf8, concatArrays } = require("./doc-utils");
 
-function moduleParse(modules, placeHolderContent, parsed, startOffset) {
+function moduleParse(
+	modules,
+	placeHolderContent,
+	parsed,
+	startOffset,
+	endLindex
+) {
 	let moduleParsed;
 	for (let i = 0, l = modules.length; i < l; i++) {
 		const module = modules[i];
 		moduleParsed = module.parse(placeHolderContent);
 		if (moduleParsed) {
 			moduleParsed.offset = startOffset;
+			moduleParsed.endLindex = endLindex;
+			moduleParsed.lIndex = endLindex;
+			moduleParsed.raw = placeHolderContent;
 			parsed.push(moduleParsed);
 			return parsed;
 		}
@@ -15,6 +24,8 @@ function moduleParse(modules, placeHolderContent, parsed, startOffset) {
 		type: "placeholder",
 		value: placeHolderContent,
 		offset: startOffset,
+		endLindex,
+		lIndex: endLindex,
 	});
 	return parsed;
 }
@@ -53,12 +64,14 @@ const parser = {
 			if (token.type === "delimiter") {
 				inPlaceHolder = token.position === "start";
 				if (token.position === "end") {
+					const endLindex = token.lIndex;
 					placeHolderContent = wordToUtf8(placeHolderContent);
 					parsed = moduleParse(
 						modules,
 						placeHolderContent,
 						parsed,
-						startOffset
+						startOffset,
+						endLindex
 					);
 					startOffset = null;
 					Array.prototype.push.apply(parsed, tailParts);

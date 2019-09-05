@@ -10,6 +10,7 @@ tags
 *.spec.js
 *.spec.map
 *.log
+/js
 /es6/tests/filenames.js
 /build
 /browser

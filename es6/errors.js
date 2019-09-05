@@ -1,11 +1,6 @@
 "use strict";
+const { last, first } = require("./utils");
 
-function first(a) {
-	return a[0];
-}
-function last(a) {
-	return a[a.length - 1];
-}
 function XTError(message) {
 	this.name = "GenericError";
 	this.message = message;
@@ -20,12 +15,12 @@ function XTTemplateError(message) {
 }
 XTTemplateError.prototype = new XTError();
 
-function RenderingError(message) {
+function XTRenderingError(message) {
 	this.name = "RenderingError";
 	this.message = message;
 	this.stack = new Error(message).stack;
 }
-RenderingError.prototype = new XTError();
+XTRenderingError.prototype = new XTError();
 
 function XTScopeParserError(message) {
 	this.name = "ScopeParserError";
@@ -41,6 +36,23 @@ function XTInternalError(message) {
 	this.stack = new Error(message).stack;
 }
 XTInternalError.prototype = new XTError();
+
+function XTAPIVersionError(message) {
+	this.name = "APIVersionError";
+	this.properties = { explanation: "APIVersionError" };
+	this.message = message;
+	this.stack = new Error(message).stack;
+}
+XTAPIVersionError.prototype = new XTError();
+
+function throwApiVersionError(msg, properties) {
+	const err = new XTAPIVersionError(msg);
+	err.properties = {
+		id: "api_version_error",
+		...properties,
+	};
+	throw err;
+}
 
 function throwMultiError(errors) {
 	const err = new XTTemplateError("Multi error");
@@ -90,9 +102,7 @@ function throwXmlTagNotFound(options) {
 	);
 	err.properties = {
 		id: `no_xml_tag_found_at_${options.position}`,
-		explanation: `No tag "${options.element}" was found at the ${
-			options.position
-		}`,
+		explanation: `No tag "${options.element}" was found at the ${options.position}`,
 		part: options.parsed[options.index],
 		parsed: options.parsed,
 		index: options.index,
@@ -101,15 +111,16 @@ function throwXmlTagNotFound(options) {
 	throw err;
 }
 
-function throwCorruptCharacters({ tag, value }) {
-	const err = new RenderingError("There are some XML corrupt characters");
+function getCorruptCharactersException({ tag, value, offset }) {
+	const err = new XTRenderingError("There are some XML corrupt characters");
 	err.properties = {
 		id: "invalid_xml_characters",
 		xtag: tag,
 		value,
-		explanation: "There are some corrupt characters for the field ${name}",
+		offset,
+		explanation: "There are some corrupt characters for the field ${tag}",
 	};
-	throw err;
+	return err;
 }
 
 function throwContentMustBeString(type) {
@@ -121,7 +132,9 @@ function throwContentMustBeString(type) {
 
 function throwRawTagNotInParagraph(options) {
 	const err = new XTTemplateError("Raw tag not in paragraph");
-	const { part: { value, offset } } = options;
+	const {
+		part: { value, offset },
+	} = options;
 	err.properties = {
 		id: "raw_tag_outerxml_invalid",
 		explanation: `The tag "${value}" is not inside a paragraph`,
@@ -142,8 +155,8 @@ function throwRawTagShouldBeOnlyTextInParagraph(options) {
 	const tag = options.part.value;
 	err.properties = {
 		id: "raw_xml_tag_should_be_only_text_in_paragraph",
-		explanation: `The tag "${tag}" should be the only text in this paragraph`,
-		xtag: options.part.value,
+		explanation: `The raw tag "${tag}" should be the only text in this paragraph. This means that this tag should not be surrounded by any text or spaces.`,
+		xtag: tag,
 		offset: options.part.offset,
 		paragraphParts: options.paragraphParts,
 	};
@@ -161,6 +174,7 @@ function getUnmatchedLoopException(options) {
 		id: `${t}_loop`,
 		explanation: `The loop with tag "${tag}" is ${t}`,
 		xtag: tag,
+		offset: options.part.offset,
 	};
 	return err;
 }
@@ -171,23 +185,35 @@ function getClosingTagNotMatchOpeningTag(options) {
 	const err = new XTTemplateError("Closing tag does not match opening tag");
 	err.properties = {
 		id: "closing_tag_does_not_match_opening_tag",
-		explanation: `The tag "${tags[0].value}" is closed by the tag "${
-			tags[1].value
-		}"`,
-		openingtag: tags[0].value,
-		offset: [tags[0].offset, tags[1].offset],
-		closingtag: tags[1].value,
+		explanation: `The tag "${tags[0].value}" is closed by the tag "${tags[1].value}"`,
+		openingtag: first(tags).value,
+		offset: [first(tags).offset, last(tags).offset],
+		closingtag: last(tags).value,
 	};
 	return err;
 }
 
-function getScopeCompilationError({ tag, rootError }) {
+function getScopeCompilationError({ tag, rootError, offset }) {
 	const err = new XTScopeParserError("Scope parser compilation failed");
 	err.properties = {
 		id: "scopeparser_compilation_failed",
+		offset,
 		tag,
 		explanation: `The scope parser for the tag "${tag}" failed to compile`,
 		rootError,
+	};
+	return err;
+}
+
+function getScopeParserExecutionError({ tag, scope, error, offset }) {
+	const err = new XTScopeParserError("Scope parser execution failed");
+	err.properties = {
+		id: "scopeparser_execution_failed",
+		explanation: `The scope parser for the tag ${tag} failed to execute`,
+		scope,
+		offset,
+		tag,
+		rootError: error,
 	};
 	return err;
 }
@@ -204,10 +230,11 @@ function getLoopPositionProducesInvalidXMLError({ tag }) {
 	return err;
 }
 
-function throwUnimplementedTagType(part) {
+function throwUnimplementedTagType(part, index) {
 	const err = new XTTemplateError(`Unimplemented tag type "${part.type}"`);
 	err.properties = {
 		part,
+		index,
 		id: "unimplemented_tag_type",
 	};
 	throw err;
@@ -235,6 +262,7 @@ function throwFileTypeNotHandled(fileType) {
 	err.properties = {
 		id: "filetype_not_handled",
 		explanation: `The file you are trying to generate is of type "${fileType}", but only docx and pptx formats are handled`,
+		fileType,
 	};
 	throw err;
 }
@@ -249,27 +277,46 @@ function throwFileTypeNotIdentified() {
 	throw err;
 }
 
+function throwXmlInvalid(content, offset) {
+	const err = new XTTemplateError("An XML file has invalid xml");
+	err.properties = {
+		id: "file_has_invalid_xml",
+		content,
+		offset,
+		explanation: "The docx contains invalid XML, it is most likely corrupt",
+	};
+	throw err;
+}
+
 module.exports = {
 	XTError,
 	XTTemplateError,
 	XTInternalError,
 	XTScopeParserError,
-	RenderingError,
-	throwMultiError,
-	throwXmlTagNotFound,
-	throwCorruptCharacters,
-	throwContentMustBeString,
-	getUnmatchedLoopException,
-	throwRawTagShouldBeOnlyTextInParagraph,
-	throwRawTagNotInParagraph,
+	XTAPIVersionError,
+	// Remove this alias in v4
+	RenderingError: XTRenderingError,
+	XTRenderingError,
+
 	getClosingTagNotMatchOpeningTag,
-	throwUnimplementedTagType,
-	getScopeCompilationError,
-	getUnopenedTagException,
-	getUnclosedTagException,
-	throwMalformedXml,
-	throwFileTypeNotIdentified,
-	throwFileTypeNotHandled,
 	getLoopPositionProducesInvalidXMLError,
+	getScopeCompilationError,
+	getScopeParserExecutionError,
+	getUnclosedTagException,
+	getUnmatchedLoopException,
+	getUnopenedTagException,
+	getCorruptCharactersException,
+
+	throwApiVersionError,
+	throwContentMustBeString,
+	throwFileTypeNotHandled,
+	throwFileTypeNotIdentified,
 	throwLocationInvalid,
+	throwMalformedXml,
+	throwMultiError,
+	throwRawTagNotInParagraph,
+	throwRawTagShouldBeOnlyTextInParagraph,
+	throwUnimplementedTagType,
+	throwXmlTagNotFound,
+	throwXmlInvalid,
 };

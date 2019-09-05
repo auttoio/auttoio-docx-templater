@@ -2,6 +2,7 @@
 
 const { DOMParser, XMLSerializer } = require("xmldom");
 const { throwXmlTagNotFound } = require("./errors");
+const { last, first } = require("./utils");
 
 function parser(tag) {
 	return {
@@ -12,6 +13,39 @@ function parser(tag) {
 			return scope[tag];
 		},
 	};
+}
+
+function getNearestLeft(parsed, elements, index) {
+	for (let i = index; i >= 0; i--) {
+		const part = parsed[i];
+		for (let j = 0, len = elements.length; j < len; j++) {
+			const element = elements[j];
+			if (isStarting(part.value, element)) {
+				return elements[j];
+			}
+		}
+	}
+	return null;
+}
+
+function getNearestRight(parsed, elements, index) {
+	for (let i = index, l = parsed.length; i < l; i++) {
+		const part = parsed[i];
+		for (let j = 0, len = elements.length; j < len; j++) {
+			const element = elements[j];
+			if (isEnding(part.value, element)) {
+				return elements[j];
+			}
+		}
+	}
+	return -1;
+}
+
+function endsWith(str, suffix) {
+	return str.indexOf(suffix, str.length - suffix.length) !== -1;
+}
+function startsWith(str, prefix) {
+	return str.substring(0, prefix.length) === prefix;
 }
 
 function unique(arr) {
@@ -31,11 +65,11 @@ function chunkBy(parsed, f) {
 		.reduce(
 			function(chunks, p) {
 				const currentChunk = last(chunks);
+				const res = f(p);
 				if (currentChunk.length === 0) {
 					currentChunk.push(p);
 					return chunks;
 				}
-				const res = f(p);
 				if (res === "start") {
 					chunks.push([p]);
 				} else if (res === "end") {
@@ -53,10 +87,6 @@ function chunkBy(parsed, f) {
 		});
 }
 
-function last(a) {
-	return a[a.length - 1];
-}
-
 const defaults = {
 	nullGetter(part) {
 		if (!part.module) {
@@ -69,6 +99,7 @@ const defaults = {
 	},
 	xmlFileNames: [],
 	parser,
+	linebreaks: false,
 	delimiters: {
 		start: "{",
 		end: "}",
@@ -90,11 +121,15 @@ function mergeObjects() {
 
 function xml2str(xmlNode) {
 	const a = new XMLSerializer();
-	return a.serializeToString(xmlNode).replace(/xmlns:[a-z0-9]+="" ?/g, "");
+	return a.serializeToString(xmlNode).replace(/xmlns(:[a-z0-9]+)?="" ?/g, "");
 }
 
-function str2xml(str, errorHandler) {
-	const parser = new DOMParser({ errorHandler });
+function str2xml(str) {
+	if (str.charCodeAt(0) === 65279) {
+		// BOM sequence
+		str = str.substr(1);
+	}
+	const parser = new DOMParser();
 	return parser.parseFromString(str, "text/xml");
 }
 
@@ -106,9 +141,9 @@ const charMap = {
 	'"': "&quot;",
 };
 
-const regexStripRegexp = /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g;
 function escapeRegExp(str) {
-	return str.replace(regexStripRegexp, "\\$&");
+	// to be able to use a string as a regex
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const charMapRegexes = Object.keys(charMap).map(function(endChar) {
@@ -172,27 +207,77 @@ returns: [{array: {0: 'la'},offset: 2},{array: {0: 'la'},offset: 8},{array: {0: 
 	return matchArray;
 }
 
+function isEnding(value, element) {
+	return value === "</" + element + ">";
+}
+
+function isStarting(value, element) {
+	return (
+		value.indexOf("<" + element) === 0 &&
+		[">", " "].indexOf(value[element.length + 1]) !== -1
+	);
+}
+
 function getRight(parsed, element, index) {
-	for (let i = index, l = parsed.length; i < l; i++) {
-		const part = parsed[i];
-		if (part.value === "</" + element + ">") {
-			return i;
-		}
+	const val = getRightOrNull(parsed, element, index);
+	if (val !== null) {
+		return val;
 	}
 	throwXmlTagNotFound({ position: "right", element, parsed, index });
 }
 
-function getLeft(parsed, element, index) {
-	for (let i = index; i >= 0; i--) {
+function getRightOrNull(parsed, elements, index) {
+	if (typeof elements === "string") {
+		elements = [elements];
+	}
+	let level = 1;
+	for (let i = index, l = parsed.length; i < l; i++) {
 		const part = parsed[i];
-		if (
-			part.value.indexOf("<" + element) === 0 &&
-			[">", " "].indexOf(part.value[element.length + 1]) !== -1
-		) {
-			return i;
+		for (let j = 0, len = elements.length; j < len; j++) {
+			const element = elements[j];
+			if (isEnding(part.value, element)) {
+				level--;
+			}
+			if (isStarting(part.value, element)) {
+				level++;
+			}
+			if (level === 0) {
+				return i;
+			}
 		}
 	}
+	return null;
+}
+
+function getLeft(parsed, element, index) {
+	const val = getLeftOrNull(parsed, element, index);
+	if (val !== null) {
+		return val;
+	}
 	throwXmlTagNotFound({ position: "left", element, parsed, index });
+}
+
+function getLeftOrNull(parsed, elements, index) {
+	if (typeof elements === "string") {
+		elements = [elements];
+	}
+	let level = 1;
+	for (let i = index; i >= 0; i--) {
+		const part = parsed[i];
+		for (let j = 0, len = elements.length; j < len; j++) {
+			const element = elements[j];
+			if (isStarting(part.value, element)) {
+				level--;
+			}
+			if (isEnding(part.value, element)) {
+				level++;
+			}
+			if (level === 0) {
+				return i;
+			}
+		}
+	}
+	return null;
 }
 
 function isTagStart(tagType, { type, tag, position }) {
@@ -256,6 +341,10 @@ function hasCorruptCharacters(string) {
 }
 
 module.exports = {
+	endsWith,
+	startsWith,
+	getNearestLeft,
+	getNearestRight,
 	isContent,
 	isParagraphStart,
 	isParagraphEnd,
@@ -266,10 +355,13 @@ module.exports = {
 	unique,
 	chunkBy,
 	last,
+	first,
 	mergeObjects,
 	xml2str,
 	str2xml,
+	getRightOrNull,
 	getRight,
+	getLeftOrNull,
 	getLeft,
 	pregMatchAll,
 	convertSpaces,
