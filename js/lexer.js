@@ -234,83 +234,73 @@ function splitDelimiters(inside) {
 
 function getAllIndexes(fullText, delimiters) {
 
-	var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
+  var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
 
-	var indexes = [];
-	var start = delimiters.start,
-		end = delimiters.end;
+  var indexes = [];
+  var start = delimiters.start,
+    end = delimiters.end;
 
-	var offset = -1;
-	var insideTag = false;
+  while (true) {
 
-	while (true) {
+    var startOffset = -1;
+    var endOffset = -1;
 
-		var startOffset = fullText.indexOf(start, offset + 1);
-		var endOffset = fullText.indexOf(end, offset + 1);
+    const conditionalIndex = fullText.match(/\{IF (.|\s)+?##}/);
+    const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
 
-		if(start === '{' || end === '}'){
+    const startIndexOfSimpleCondition = fullText.match(/\{#IF (.|\s)+?##}/);
+    const finalIndexOfSimpleCondition = fullText.match(/{\/}/);
 
-			var position = null;
-			var len = void 0;
-			var compareResult = compareOffsets(startOffset, endOffset);
+    if(conditionalIndex){
 
-			if (compareResult === NONE) {
-				return indexes;
-			}
+      startOffset = conditionalIndex.index;
+      endOffset = conditionalIndex.index + conditionalIndex[0].length - 1;
 
-			if (compareResult === EQUAL) {
-				if (!insideTag) {
-					compareResult = START;
-				} else {
-					compareResult = END;
-				}
-			}
+      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
 
-			if (compareResult === END) {
-				insideTag = false;
-				offset = endOffset;
-				position = "end";
-				len = end.length;
-			}
+      indexes.push({ offset: startOffset, position: "start", length: start.length });
+      indexes.push({ offset: endOffset, position: "end", length: end.length });
 
-			if (compareResult === START) {
-				insideTag = true;
-				offset = startOffset;
-				position = "start";
-				len = start.length;
-			}
+    } else if(startIndexOfSimpleCondition && finalIndexOfSimpleCondition){
 
-			indexes.push({
-				offset: offset,
-				position: position,
-				length: len
-			});
-		} else {
-			startOffset = -1;
-			endOffset = -1;
+      // Start of simple condition
+      startOffset = startIndexOfSimpleCondition.index;
+      endOffset = startIndexOfSimpleCondition.index + startIndexOfSimpleCondition[0].length - 1;
 
-			const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
+      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+      fullText = fullText.substring(0, endOffset) + REPLACMENT_SYMBOL + fullText.substring(endOffset + 1);
 
-			if(variableIndex) {
+      indexes.push({ offset: startOffset, position: "start", length: start.length });
+      indexes.push({ offset: endOffset, position: "end", length: end.length });
 
-				startOffset = variableIndex.index;
-				endOffset = variableIndex.index + variableIndex[0].length - 1;
+      // End of simple condition
+      startOffset = finalIndexOfSimpleCondition.index;
+      endOffset = finalIndexOfSimpleCondition.index + finalIndexOfSimpleCondition[0].length - 1;
 
-				fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
 
-				indexes.push({ offset: startOffset, position: "start", length: start.length });
-				indexes.push({ offset: endOffset, position: "end", length: end.length });
+      indexes.push({ offset: startOffset, position: "start", length: start.length });
+      indexes.push({ offset: endOffset, position: "end", length: end.length });
 
-			}
+    } else if(variableIndex) {
 
-			var compareResult = compareOffsets(startOffset, endOffset);
+      startOffset = variableIndex.index;
+      endOffset = variableIndex.index + variableIndex[0].length - 1;
 
-			if (compareResult === NONE) {
-				return indexes;
-			}
-		}
+      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
 
-	}
+      indexes.push({ offset: startOffset, position: "start", length: start.length });
+      indexes.push({ offset: endOffset, position: "end", length: end.length });
+
+    }
+
+    var compareResult = compareOffsets(startOffset, endOffset);
+
+    if (compareResult === NONE) {
+      return indexes;
+    }
+
+  }
 }
 
 function parseDelimiters(innerContentParts, delimiters) {
