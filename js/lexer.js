@@ -246,7 +246,7 @@ function getAllIndexes(fullText, delimiters) {
     var endOffset = -1;
 
     const conditionalIndex = fullText.match(/\{IF (.|\s)+?##}/);
-    const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
+    const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[-\w]*([.|].+?)*)\]/);
 
     const startIndexOfSimpleCondition = fullText.match(/\{#IF (.|\s)+?##}/);
     const finalIndexOfSimpleCondition = fullText.match(/{\/}/);
