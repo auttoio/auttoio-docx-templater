@@ -289,7 +289,7 @@ function getAllIndexes(fullText, delimiters) {
 			startOffset = -1;
 			endOffset = -1;
 
-      const variableIndex = fullText.match(/\[(~)*(!?[a-zA-Z-_]+[-\w]*([.|].+?)*)\]/);
+      const variableIndex = fullText.match(/\[(~)*(!?\w+[-\w]*([.|].+?)*)\]/);
 
 			if(variableIndex) {
 
