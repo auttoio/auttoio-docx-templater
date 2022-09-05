@@ -234,73 +234,83 @@ function splitDelimiters(inside) {
 
 function getAllIndexes(fullText, delimiters) {
 
-  var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
+	var REPLACMENT_SYMBOL = "$"; // Need to prevent replace variable twice
 
-  var indexes = [];
-  var start = delimiters.start,
-    end = delimiters.end;
+	var indexes = [];
+	var start = delimiters.start,
+		end = delimiters.end;
 
-  while (true) {
+	var offset = -1;
+	var insideTag = false;
 
-    var startOffset = -1;
-    var endOffset = -1;
+	while (true) {
 
-    const conditionalIndex = fullText.match(/\{IF (.|\s)+?##}/);
-    const variableIndex = fullText.match(/\[(!?[~a-zA-Z-_]+[\w]*([.|].+?)*)\]/);
+		var startOffset = fullText.indexOf(start, offset + 1);
+		var endOffset = fullText.indexOf(end, offset + 1);
 
-    const startIndexOfSimpleCondition = fullText.match(/\{#IF (.|\s)+?##}/);
-    const finalIndexOfSimpleCondition = fullText.match(/{\/}/);
+		if(start === '{' || end === '}'){
 
-    if(conditionalIndex){
+			var position = null;
+			var len = void 0;
+			var compareResult = compareOffsets(startOffset, endOffset);
 
-      startOffset = conditionalIndex.index;
-      endOffset = conditionalIndex.index + conditionalIndex[0].length - 1;
+			if (compareResult === NONE) {
+				return indexes;
+			}
 
-      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+			if (compareResult === EQUAL) {
+				if (!insideTag) {
+					compareResult = START;
+				} else {
+					compareResult = END;
+				}
+			}
 
-      indexes.push({ offset: startOffset, position: "start", length: start.length });
-      indexes.push({ offset: endOffset, position: "end", length: end.length });
+			if (compareResult === END) {
+				insideTag = false;
+				offset = endOffset;
+				position = "end";
+				len = end.length;
+			}
 
-    } else if(startIndexOfSimpleCondition && finalIndexOfSimpleCondition){
+			if (compareResult === START) {
+				insideTag = true;
+				offset = startOffset;
+				position = "start";
+				len = start.length;
+			}
 
-      // Start of simple condition
-      startOffset = startIndexOfSimpleCondition.index;
-      endOffset = startIndexOfSimpleCondition.index + startIndexOfSimpleCondition[0].length - 1;
+			indexes.push({
+				offset: offset,
+				position: position,
+				length: len
+			});
+		} else {
+			startOffset = -1;
+			endOffset = -1;
 
-      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
-      fullText = fullText.substring(0, endOffset) + REPLACMENT_SYMBOL + fullText.substring(endOffset + 1);
+      const variableIndex = fullText.match(/\[(~)*(!?\w+[-\w]*([.|].+?)*)\]/);
 
-      indexes.push({ offset: startOffset, position: "start", length: start.length });
-      indexes.push({ offset: endOffset, position: "end", length: end.length });
+			if(variableIndex) {
 
-      // End of simple condition
-      startOffset = finalIndexOfSimpleCondition.index;
-      endOffset = finalIndexOfSimpleCondition.index + finalIndexOfSimpleCondition[0].length - 1;
+				startOffset = variableIndex.index;
+				endOffset = variableIndex.index + variableIndex[0].length - 1;
 
-      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+				fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
 
-      indexes.push({ offset: startOffset, position: "start", length: start.length });
-      indexes.push({ offset: endOffset, position: "end", length: end.length });
+				indexes.push({ offset: startOffset, position: "start", length: start.length });
+				indexes.push({ offset: endOffset, position: "end", length: end.length });
 
-    } else if(variableIndex) {
+			}
 
-      startOffset = variableIndex.index;
-      endOffset = variableIndex.index + variableIndex[0].length - 1;
+			var compareResult = compareOffsets(startOffset, endOffset);
 
-      fullText = fullText.substring(0, startOffset) + REPLACMENT_SYMBOL + fullText.substring(startOffset + 1);
+			if (compareResult === NONE) {
+				return indexes;
+			}
+		}
 
-      indexes.push({ offset: startOffset, position: "start", length: start.length });
-      indexes.push({ offset: endOffset, position: "end", length: end.length });
-
-    }
-
-    var compareResult = compareOffsets(startOffset, endOffset);
-
-    if (compareResult === NONE) {
-      return indexes;
-    }
-
-  }
+	}
 }
 
 function parseDelimiters(innerContentParts, delimiters) {
